@@ -35,7 +35,7 @@ export const searchSubstances = async (query: string, filters?: SearchFilters): 
     
     IMPORTANTE SOBRE ESTRUTURA 3D:
     - Se for uma proteína/enzima, VOCÊ DEVE fornecer o 'pdbId' (Código de 4 caracteres do Protein Data Bank, ex: '1CRN', '4HHB').
-    - Se for uma pequena molécula, forneça o 'smiles'.
+    - Se for uma pequena molécula, forneça o 'smiles' e o 'englishName' (Nome oficial em inglês para busca no PubChem).
     
     Inclua propriedades numéricas na lista de 'properties':
     - Para Químicos: Peso Molecular, Ponto de Fusão, Ponto de Ebulição, Densidade, LogP.
@@ -55,7 +55,8 @@ export const searchSubstances = async (query: string, filters?: SearchFilters): 
           items: {
             type: Type.OBJECT,
             properties: {
-              name: { type: Type.STRING },
+              name: { type: Type.STRING, description: "Nome comum (pode ser em PT-BR)" },
+              englishName: { type: Type.STRING, description: "Nome técnico em inglês para busca em banco de dados (PubChem)" },
               description: { type: Type.STRING },
               formula: { type: Type.STRING },
               smiles: { type: Type.STRING, description: "Apenas para pequenas moléculas" },

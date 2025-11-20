@@ -14,6 +14,7 @@ export interface ChemicalProperty {
 export interface Molecule {
   id: string;
   name: string;
+  englishName?: string; // Nome em inglês para melhor compatibilidade com APIs (PubChem)
   description: string;
   formula: string;
   smiles: string; // Simplified Molecular Input Line Entry System

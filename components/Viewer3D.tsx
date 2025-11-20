@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Molecule } from '../types';
-import { X, Loader2, Box, Layers, Circle, Dna } from 'lucide-react';
+import { X, Loader2, Box, Layers, Circle, Dna, AlertTriangle } from 'lucide-react';
 
 // Declaration for the global 3Dmol object loaded via script tag
 declare const $3Dmol: any;
@@ -16,6 +16,7 @@ export const Viewer3D: React.FC<Viewer3DProps> = ({ molecule, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [viewerInstance, setViewerInstance] = useState<any>(null);
   const [style, setStyle] = useState<'stick' | 'sphere' | 'surface' | 'cartoon'>('stick');
+  const [is2D, setIs2D] = useState(false);
 
   useEffect(() => {
     if (!viewerRef.current) return;
@@ -24,6 +25,9 @@ export const Viewer3D: React.FC<Viewer3DProps> = ({ molecule, onClose }) => {
     const config = { backgroundColor: '#0f172a' };
     const viewer = $3Dmol.createViewer(viewerRef.current, config);
     setViewerInstance(viewer);
+    setLoading(true);
+    setError(null);
+    setIs2D(false);
 
     const fetchStructure = async () => {
       try {
@@ -42,13 +46,58 @@ export const Viewer3D: React.FC<Viewer3DProps> = ({ molecule, onClose }) => {
         // LOGIC FOR SMALL MOLECULES (PubChem SDF)
         else {
             setStyle('stick'); // Default for small molecules
-            const encodedName = encodeURIComponent(molecule.name);
-            const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodedName}/SDF?record_type=3d`;
             
-            const response = await fetch(url);
-            if (!response.ok) throw new Error("Estrutura 3D não disponível no PubChem.");
+            // Prefer English name for API calls, fallback to generic name
+            const searchTerm = molecule.englishName || molecule.name;
+            let sdfData = '';
+            let found2D = false;
+
+            // Try 1: Get CID first (More robust than direct name-to-SDF)
+            let cid = null;
+            try {
+              const cidResponse = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(searchTerm)}/cids/JSON`);
+              if (cidResponse.ok) {
+                const cidJson = await cidResponse.json();
+                cid = cidJson?.IdentifierList?.CID?.[0];
+              }
+            } catch (e) {
+               console.warn("CID fetch failed, trying direct name...", e);
+            }
+
+            if (cid) {
+               // Try 3D by CID
+               const cid3dRes = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/SDF?record_type=3d`);
+               if (cid3dRes.ok) {
+                 sdfData = await cid3dRes.text();
+               } else {
+                 // Fallback to 2D by CID if 3D is missing
+                 const cid2dRes = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/SDF?record_type=2d`);
+                 if (cid2dRes.ok) {
+                   sdfData = await cid2dRes.text();
+                   found2D = true;
+                 }
+               }
+            } else {
+               // Fallback: Direct Name Search (If CID failed)
+               const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(searchTerm)}/SDF?record_type=3d`;
+               const response = await fetch(url);
+               if (response.ok) {
+                 sdfData = await response.text();
+               } else {
+                 // Try 2D direct name
+                 const response2d = await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(searchTerm)}/SDF?record_type=2d`);
+                 if (response2d.ok) {
+                    sdfData = await response2d.text();
+                    found2D = true;
+                 }
+               }
+            }
+
+            if (!sdfData) {
+               throw new Error(`Estrutura não disponível no PubChem para "${searchTerm}".`);
+            }
             
-            const sdfData = await response.text();
+            setIs2D(found2D);
             viewer.addModel(sdfData, "sdf");
             viewer.setStyle({}, { stick: { radius: 0.15 }, sphere: { scale: 0.3 } });
         }
@@ -56,9 +105,9 @@ export const Viewer3D: React.FC<Viewer3DProps> = ({ molecule, onClose }) => {
         viewer.zoomTo();
         viewer.render();
         setLoading(false);
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
-        setError("Não foi possível carregar a estrutura 3D. A fonte de dados pode estar indisponível.");
+        setError(err.message || "Não foi possível carregar a estrutura 3D.");
         setLoading(false);
       }
     };
@@ -103,11 +152,12 @@ export const Viewer3D: React.FC<Viewer3DProps> = ({ molecule, onClose }) => {
           <div>
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               <Box className="w-5 h-5 text-brand-500" />
-              Visualização Estrutural 3D
+              Visualização Estrutural {is2D ? '(2D Planar)' : '3D'}
               {molecule.structureType === 'protein' && <span className="bg-purple-500/20 text-purple-300 text-xs px-2 py-0.5 rounded border border-purple-500/50">Proteína</span>}
             </h3>
             <p className="text-sm text-brand-400 font-mono">
                 {molecule.name} 
+                {molecule.englishName && <span className="text-slate-500 ml-1">({molecule.englishName})</span>}
                 {molecule.pdbId ? ` (PDB: ${molecule.pdbId})` : ` (${molecule.formula})`}
             </p>
           </div>
@@ -121,24 +171,33 @@ export const Viewer3D: React.FC<Viewer3DProps> = ({ molecule, onClose }) => {
             {loading && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-brand-500">
                     <Loader2 className="w-10 h-10 animate-spin mb-2" />
-                    <span className="text-sm">Obtendo coordenadas espaciais de {molecule.source || 'Base Pública'}...</span>
+                    <span className="text-sm">Obtendo estrutura ({molecule.englishName || molecule.name})...</span>
                 </div>
             )}
             
             {error && (
                 <div className="absolute inset-0 flex items-center justify-center text-slate-400 p-8 text-center">
-                    <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
-                        <p className="text-red-400 mb-2">Erro na Renderização</p>
-                        <p>{error}</p>
+                    <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 max-w-md">
+                        <p className="text-red-400 mb-2 font-bold flex items-center justify-center gap-2"><AlertTriangle className="w-5 h-5"/> Erro na Renderização</p>
+                        <p className="text-sm mb-4">{error}</p>
+                        <p className="text-xs text-slate-500">Dica: Tente buscar pelo nome em inglês ou verifique se a substância possui estrutura pública catalogada.</p>
+                        <button onClick={onClose} className="mt-4 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded text-sm transition-colors">Fechar</button>
                     </div>
                 </div>
+            )}
+            
+            {is2D && !loading && !error && (
+                 <div className="absolute top-4 left-4 z-10 bg-yellow-500/10 border border-yellow-500/30 text-yellow-200 text-xs px-3 py-2 rounded backdrop-blur-md flex items-center gap-2">
+                    <AlertTriangle className="w-3 h-3" />
+                    <span>Estrutura 3D não disponível. Exibindo projeção 2D.</span>
+                 </div>
             )}
 
             <div ref={viewerRef} className="w-full h-full cursor-move" />
             
             {/* Controls Overlay */}
             {!loading && !error && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur border border-slate-700 p-2 rounded-full flex gap-2 shadow-xl">
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur border border-slate-700 p-2 rounded-full flex gap-2 shadow-xl z-10">
                     <button 
                         onClick={() => setStyle('stick')}
                         className={`p-2 rounded-full transition-all ${style === 'stick' ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
@@ -176,7 +235,7 @@ export const Viewer3D: React.FC<Viewer3DProps> = ({ molecule, onClose }) => {
         {/* Footer Info */}
         <div className="p-3 bg-slate-900 border-t border-slate-800 flex justify-between items-center text-xs text-slate-500 px-6">
             <span>Use o mouse para rotacionar (Clique esquerdo), Zoom (Scroll), Pan (Clique direito).</span>
-            <span>Dados: {molecule.structureType === 'protein' ? 'RCSB PDB' : 'PubChem 3D'}</span>
+            <span>Fonte: {molecule.structureType === 'protein' ? 'RCSB PDB' : 'PubChem'}</span>
         </div>
       </div>
     </div>
