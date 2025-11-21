@@ -28,18 +28,19 @@ export interface Molecule {
   source?: string;
 }
 
-export interface Project {
+export interface DashboardChart {
   id: string;
-  name: string;
-  molecules: Molecule[];
-  createdAt: Date;
+  title: string;
+  type: 'scatter' | 'bar';
+  xAxisKey: string;
+  yAxisKey: string;
+  selectedMoleculeIds: string[]; // Control which molecules appear in this specific chart
 }
 
-export interface ChartConfig {
-  xAxis: string;
-  yAxis: string;
-  zAxis?: string; // For bubble size or 3rd dimension simulation
-  type: 'scatter' | 'bar' | 'line' | 'radar';
+export interface ProjectData {
+  molecules: Molecule[];
+  charts: DashboardChart[];
+  lastModified: number;
 }
 
 export interface SearchFilters {

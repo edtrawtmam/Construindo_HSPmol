@@ -1,7 +1,11 @@
-import React, { useState } from 'react';
-import { Search as SearchIcon, Plus, Check, Loader2, Info, SlidersHorizontal, Box, Dna } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Search as SearchIcon, Plus, Check, Loader2, Info, SlidersHorizontal, Box, Dna, Upload, FileText, X } from 'lucide-react';
 import { Molecule, SearchFilters } from '../types';
-import { searchSubstances } from '../services/geminiService';
+import { searchSubstances, extractChemicalNamesFromText } from '../services/geminiService';
+
+// Global declarations for external libraries loaded via index.html
+declare const XLSX: any;
+declare const pdfjsLib: any;
 
 interface SearchProps {
   onAddToProject: (mol: Molecule) => void;
@@ -15,6 +19,13 @@ export const Search: React.FC<SearchProps> = ({ onAddToProject, projectMolecules
   const [results, setResults] = useState<Molecule[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   
+  // Import Modal State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importStep, setImportStep] = useState<'upload' | 'extracting' | 'review' | 'fetching'>('upload');
+  const [extractedNames, setExtractedNames] = useState<string[]>([]);
+  const [selectedImportNames, setSelectedImportNames] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Filter State
   const [filters, setFilters] = useState<SearchFilters>({
     minMeltingPoint: '',
@@ -41,8 +52,84 @@ export const Search: React.FC<SearchProps> = ({ onAddToProject, projectMolecules
 
   const isSelected = (mol: Molecule) => projectMolecules.some(m => m.name === mol.name);
 
+  // --- File Import Logic ---
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportStep('extracting');
+    let text = '';
+
+    try {
+      if (file.name.endsWith('.pdf')) {
+        // PDF Parsing
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        for (let i = 1; i <= pdf.numPages; i++) {
+           const page = await pdf.getPage(i);
+           const content = await page.getTextContent();
+           text += content.items.map((item: any) => item.str).join(' ') + ' ';
+        }
+      } else if (file.name.match(/\.(xlsx|xls|csv)$/)) {
+        // Excel/CSV Parsing
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        workbook.SheetNames.forEach((sheetName: string) => {
+           const worksheet = workbook.Sheets[sheetName];
+           text += XLSX.utils.sheet_to_txt(worksheet) + ' ';
+        });
+      } else {
+        // Plain Text
+        text = await file.text();
+      }
+
+      if (text.trim().length === 0) throw new Error("Arquivo vazio ou não foi possível ler o texto.");
+
+      // Send to AI for extraction
+      const names = await extractChemicalNamesFromText(text);
+      setExtractedNames(names);
+      setSelectedImportNames(names); // Select all by default
+      setImportStep('review');
+
+    } catch (error) {
+      console.error("Import error:", error);
+      alert("Erro ao ler arquivo. Certifique-se de que é um PDF, Excel, CSV ou Texto válido.");
+      setImportStep('upload');
+    }
+    
+    // Reset input
+    if (e.target) e.target.value = '';
+  };
+
+  const handleImportConfirm = async (addToProject: boolean) => {
+    if (selectedImportNames.length === 0) return;
+
+    setImportStep('fetching');
+    
+    // Batch Fetch
+    const molecules = await searchSubstances("", filters, selectedImportNames);
+    
+    if (addToProject) {
+      molecules.forEach(mol => onAddToProject(mol));
+    }
+    
+    setResults(prev => [...molecules, ...prev]); // Add to top of results
+    setShowImportModal(false);
+    setImportStep('upload');
+    setExtractedNames([]);
+  };
+
+  const toggleImportName = (name: string) => {
+    if (selectedImportNames.includes(name)) {
+      setSelectedImportNames(prev => prev.filter(n => n !== name));
+    } else {
+      setSelectedImportNames(prev => [...prev, name]);
+    }
+  };
+
   return (
-    <div className="p-8 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent pb-20">
+    <div className="p-8 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent pb-20 relative">
       <div className="max-w-5xl mx-auto">
         <div className="mb-10 text-center">
           <h2 className="text-3xl font-bold text-white mb-4">Explorador de Materiais & Biomoléculas</h2>
@@ -56,12 +143,20 @@ export const Search: React.FC<SearchProps> = ({ onAddToProject, projectMolecules
             </div>
             <input
                 type="text"
-                className="block w-full pl-12 pr-4 py-4 bg-transparent border-none text-lg text-white placeholder-slate-500 focus:ring-0 outline-none"
-                placeholder="Ex: Grafeno, Hemoglobina, Polímeros, Insulina..."
+                className="block w-full pl-12 pr-32 py-4 bg-transparent border-none text-lg text-white placeholder-slate-500 focus:ring-0 outline-none"
+                placeholder="Ex: Grafeno, Hemoglobina, Polímeros..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
             />
             <div className="absolute right-2 top-2 bottom-2 flex gap-2">
+                 <button
+                    type="button"
+                    onClick={() => setShowImportModal(true)}
+                    className="px-3 rounded-xl font-medium transition-colors flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
+                    title="Importar lista de arquivo"
+                >
+                    <Upload className="w-4 h-4" />
+                </button>
                 <button
                     type="button"
                     onClick={() => setShowFilters(!showFilters)}
@@ -203,13 +298,95 @@ export const Search: React.FC<SearchProps> = ({ onAddToProject, projectMolecules
             );
           })}
           
-          {results.length === 0 && !loading && query && (
+          {results.length === 0 && !loading && query && !showImportModal && (
              <div className="text-center py-12 text-slate-500 bg-slate-800/50 rounded-xl border border-dashed border-slate-700">
-                 <p>Nenhum resultado encontrado para "{query}". Tente ajustar os filtros ou incluir proteínas.</p>
+                 <p>Nenhum resultado encontrado para "{query}". Tente ajustar os filtros ou importar uma lista.</p>
              </div>
           )}
         </div>
       </div>
+
+      {/* IMPORT MODAL */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+                <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-brand-500" /> Importação de Substâncias
+                    </h3>
+                    <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+                </div>
+
+                <div className="p-6 flex-1 overflow-y-auto">
+                    {importStep === 'upload' && (
+                        <div className="flex flex-col items-center justify-center py-10 border-2 border-dashed border-slate-700 rounded-xl bg-slate-800/30 hover:bg-slate-800/50 transition-colors cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                            <Upload className="w-12 h-12 text-brand-500 mb-4" />
+                            <p className="text-lg text-slate-200 font-medium">Clique para selecionar arquivo</p>
+                            <p className="text-sm text-slate-500 mt-2">Suporta .xlsx, .csv, .pdf, .txt</p>
+                            <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept=".xlsx,.xls,.csv,.pdf,.txt" />
+                        </div>
+                    )}
+
+                    {importStep === 'extracting' && (
+                        <div className="flex flex-col items-center justify-center py-10">
+                            <Loader2 className="w-10 h-10 animate-spin text-brand-500 mb-4" />
+                            <p className="text-slate-300">Lendo arquivo e identificando substâncias com IA...</p>
+                        </div>
+                    )}
+
+                    {importStep === 'review' && (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <p className="text-sm text-slate-400">Substâncias identificadas: {selectedImportNames.length} de {extractedNames.length}</p>
+                                <div className="flex gap-2 text-xs">
+                                    <button onClick={() => setSelectedImportNames(extractedNames)} className="text-brand-400 hover:text-brand-300">Marcar Todas</button>
+                                    <button onClick={() => setSelectedImportNames([])} className="text-slate-500 hover:text-slate-300">Desmarcar</button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2">
+                                {extractedNames.map((name, idx) => (
+                                    <div key={idx} onClick={() => toggleImportName(name)} className={`p-2 rounded border cursor-pointer flex items-center gap-2 text-sm ${selectedImportNames.includes(name) ? 'bg-brand-900/30 border-brand-500/50 text-slate-200' : 'bg-slate-800 border-transparent text-slate-500'}`}>
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedImportNames.includes(name) ? 'bg-brand-500 border-brand-500' : 'border-slate-600'}`}>
+                                            {selectedImportNames.includes(name) && <Check className="w-3 h-3 text-white" />}
+                                        </div>
+                                        <span className="truncate">{name}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {importStep === 'fetching' && (
+                         <div className="flex flex-col items-center justify-center py-10">
+                            <Loader2 className="w-10 h-10 animate-spin text-green-500 mb-4" />
+                            <p className="text-slate-300">Obtendo propriedades científicas nas bases de dados...</p>
+                            <p className="text-xs text-slate-500 mt-2">Isso pode levar alguns segundos.</p>
+                        </div>
+                    )}
+                </div>
+
+                {importStep === 'review' && (
+                    <div className="p-4 border-t border-slate-800 flex justify-end gap-3 bg-slate-900">
+                        <button onClick={() => setShowImportModal(false)} className="px-4 py-2 text-slate-400 hover:text-white text-sm">Cancelar</button>
+                        <button 
+                            onClick={() => handleImportConfirm(false)} 
+                            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+                            disabled={selectedImportNames.length === 0}
+                        >
+                            Apenas Buscar
+                        </button>
+                        <button 
+                            onClick={() => handleImportConfirm(true)} 
+                            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-brand-900/50"
+                            disabled={selectedImportNames.length === 0}
+                        >
+                            Buscar & Adicionar ao Projeto
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+      )}
     </div>
   );
 };

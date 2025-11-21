@@ -4,12 +4,13 @@ import { Search } from './components/Search';
 import { Dashboard } from './components/Dashboard';
 import { Comparison } from './components/Comparison';
 import { Viewer3D } from './components/Viewer3D';
-import { ViewState, Molecule } from './types';
+import { ViewState, Molecule, DashboardChart, ProjectData } from './types';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>(ViewState.SEARCH);
   const [projectMolecules, setProjectMolecules] = useState<Molecule[]>([]);
+  const [projectCharts, setProjectCharts] = useState<DashboardChart[]>([]);
   const [selected3DMolecule, setSelected3DMolecule] = useState<Molecule | null>(null);
   
   // Notification System
@@ -30,8 +31,13 @@ const App: React.FC = () => {
 
   const handleQuickSave = () => {
     try {
-      localStorage.setItem('chemselect_autosave', JSON.stringify(projectMolecules));
-      showNotification("Projeto salvo localmente com sucesso!", 'success');
+      const projectData: ProjectData = {
+        molecules: projectMolecules,
+        charts: projectCharts,
+        lastModified: Date.now()
+      };
+      localStorage.setItem('chemselect_autosave', JSON.stringify(projectData));
+      showNotification("Projeto e análises salvos localmente!", 'success');
     } catch (error) {
       showNotification("Erro ao salvar projeto.", 'error');
     }
@@ -42,9 +48,16 @@ const App: React.FC = () => {
       const saved = localStorage.getItem('chemselect_autosave');
       if (saved) {
         const parsed = JSON.parse(saved);
+        
+        // Handle Legacy Format (Array only) vs New Format (Object)
         if (Array.isArray(parsed)) {
           setProjectMolecules(parsed);
-          showNotification("Projeto restaurado com sucesso!", 'success');
+          setProjectCharts([]); // Reset charts for legacy data
+          showNotification("Dados antigos restaurados (sem gráficos salvos).", 'success');
+        } else if (parsed.molecules) {
+          setProjectMolecules(parsed.molecules);
+          setProjectCharts(parsed.charts || []);
+          showNotification("Projeto completo restaurado com sucesso!", 'success');
         } else {
           throw new Error("Formato inválido");
         }
@@ -58,7 +71,13 @@ const App: React.FC = () => {
 
   const handleExportProject = () => {
     try {
-      const dataStr = JSON.stringify(projectMolecules, null, 2);
+      const projectData: ProjectData = {
+        molecules: projectMolecules,
+        charts: projectCharts,
+        lastModified: Date.now()
+      };
+      
+      const dataStr = JSON.stringify(projectData, null, 2);
       const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
       
       const exportFileDefaultName = `chemselect_project_${new Date().toISOString().slice(0,10)}.json`;
@@ -78,17 +97,23 @@ const App: React.FC = () => {
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
+        
+        // Logic to detect format
         if (Array.isArray(json)) {
-          // Basic validation: check if items have 'id' and 'name'
-          if (json.length > 0 && (!json[0].id || !json[0].name)) {
-             throw new Error("Estrutura de arquivo inválida.");
-          }
-          setProjectMolecules(json);
-          showNotification("Projeto importado com sucesso!", 'success');
-          setView(ViewState.COMPARISON); // Switch view to show loaded data
+           // Legacy
+           if (json.length > 0 && (!json[0].id || !json[0].name)) throw new Error("Estrutura inválida");
+           setProjectMolecules(json);
+           setProjectCharts([]);
+        } else if (json.molecules) {
+           // New Format
+           setProjectMolecules(json.molecules);
+           setProjectCharts(json.charts || []);
         } else {
-          throw new Error("O arquivo não contém uma lista válida de moléculas.");
+          throw new Error("O arquivo não contém dados válidos.");
         }
+        
+        showNotification("Projeto importado com sucesso!", 'success');
+        setView(ViewState.COMPARISON); 
       } catch (error) {
         console.error(error);
         showNotification("Arquivo inválido ou corrompido.", 'error');
@@ -108,6 +133,7 @@ const App: React.FC = () => {
 
   const removeFromProject = (id: string) => {
     setProjectMolecules(projectMolecules.filter(m => m.id !== id));
+    // Also remove from charts logic could be here, but simple ID check in render is safer
   };
 
   const updateMolecule = (updated: Molecule) => {
@@ -161,7 +187,9 @@ const App: React.FC = () => {
 
         {view === ViewState.DASHBOARD && (
           <Dashboard 
-            projectMolecules={projectMolecules} 
+            projectMolecules={projectMolecules}
+            charts={projectCharts}
+            setCharts={setProjectCharts}
           />
         )}
 
