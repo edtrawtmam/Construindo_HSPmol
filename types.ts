@@ -11,6 +11,14 @@ export interface ChemicalProperty {
   category: 'Physical' | 'Thermodynamic' | 'Structural' | 'Safety' | 'Biological' | 'Custom';
 }
 
+export interface HansenParameters {
+  deltaD: number; // Dispersão
+  deltaP: number; // Polaridade
+  deltaH: number; // Ponte de Hidrogênio
+  radius?: number; // Raio de interação (opcional)
+  method: 'VanKrevelen' | 'Stefanis' | 'Marcus' | 'Costas' | 'Manual';
+}
+
 export interface Molecule {
   id: string;
   name: string;
@@ -23,6 +31,7 @@ export interface Molecule {
   structureType: 'small-molecule' | 'protein';
   molecularWeight: number;
   properties: ChemicalProperty[];
+  hsp?: HansenParameters; // New Field
   tags: string[];
   notes?: string; // User annotations
   source?: string;
