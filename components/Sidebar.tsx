@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { FlaskConical, LayoutDashboard, Scale, Search, Database, Save, FolderOpen, Download, Upload, HardDrive, Info, Sun, Moon, Layers } from 'lucide-react';
+import { FlaskConical, LayoutDashboard, Scale, Search, Database, Save, FolderOpen, Download, Upload, HardDrive, Info, Sun, Moon, Layers, ExternalLink } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface SidebarProps {
@@ -13,6 +13,7 @@ interface SidebarProps {
   isDarkMode: boolean;
   toggleTheme: () => void;
   onOpenInfo: () => void;
+  onOpenHspDocs: () => void; // New Prop
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -25,7 +26,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImport,
   isDarkMode,
   toggleTheme,
-  onOpenInfo
+  onOpenInfo,
+  onOpenHspDocs
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -164,9 +166,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-xs uppercase font-bold tracking-wider">Bases Conectadas</span>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <span className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm">PubChem</span>
-            <span className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm">ChEMBL</span>
-            <span className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm">MatWeb</span>
+            <a href="https://pubchem.ncbi.nlm.nih.gov/" target="_blank" rel="noreferrer" className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm hover:border-brand-500 hover:text-brand-500 transition-colors flex items-center gap-1">PubChem <ExternalLink className="w-2 h-2"/></a>
+            <a href="https://www.ebi.ac.uk/chembl/" target="_blank" rel="noreferrer" className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm hover:border-brand-500 hover:text-brand-500 transition-colors flex items-center gap-1">ChEMBL <ExternalLink className="w-2 h-2"/></a>
+            <a href="http://www.matweb.com/" target="_blank" rel="noreferrer" className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm hover:border-brand-500 hover:text-brand-500 transition-colors flex items-center gap-1">MatWeb <ExternalLink className="w-2 h-2"/></a>
+            <a href="https://www.rcsb.org/" target="_blank" rel="noreferrer" className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm hover:border-brand-500 hover:text-brand-500 transition-colors flex items-center gap-1">PDB <ExternalLink className="w-2 h-2"/></a>
+            <a href="https://www.ncbi.nlm.nih.gov/genbank/" target="_blank" rel="noreferrer" className="text-[10px] px-2 py-1 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-full border border-gray-200 dark:border-slate-700 shadow-sm hover:border-brand-500 hover:text-brand-500 transition-colors flex items-center gap-1">GenBank <ExternalLink className="w-2 h-2"/></a>
           </div>
         </div>
 
@@ -177,7 +181,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-xs uppercase font-bold tracking-wider">Módulos Ativos</span>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <span className="text-[10px] px-2 py-1 bg-brand-100 dark:bg-brand-900 text-brand-700 dark:text-brand-300 rounded-full border border-brand-200 dark:border-brand-700 shadow-sm font-semibold">HSP Engine</span>
+            <button 
+                onClick={onOpenHspDocs}
+                className="text-[10px] px-2 py-1 bg-brand-100 dark:bg-brand-900 text-brand-700 dark:text-brand-300 rounded-full border border-brand-200 dark:border-brand-700 shadow-sm font-semibold hover:bg-brand-200 dark:hover:bg-brand-800 transition-colors flex items-center gap-1"
+                title="Clique para ver a metodologia"
+            >
+                HSP Engine <Info className="w-2 h-2"/>
+            </button>
           </div>
         </div>
       </div>

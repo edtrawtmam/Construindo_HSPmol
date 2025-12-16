@@ -15,8 +15,11 @@ export interface HansenParameters {
   deltaD: number; // Dispersão
   deltaP: number; // Polaridade
   deltaH: number; // Ponte de Hidrogênio
+  deltaT?: number; // Hildebrand (Total)
+  deltaV?: number; // Vetorial (D+P)
+  molarVolume?: number; // Volume Molar (cm3/mol)
   radius?: number; // Raio de interação (opcional)
-  method: 'VanKrevelen' | 'Stefanis' | 'Marcus' | 'Costas' | 'Manual';
+  method: 'VanKrevelen' | 'Stefanis' | 'Marcus' | 'Costas' | 'Manual' | 'Experimental (Ref)';
 }
 
 export interface Molecule {

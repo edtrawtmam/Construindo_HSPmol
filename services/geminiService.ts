@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { Molecule, ChemicalProperty, SearchFilters } from '../types';
 
@@ -90,6 +91,8 @@ export const searchSubstances = async (query: string, filters?: SearchFilters, b
       1. Pequenas moléculas/compostos químicos (Ex: Grafeno, Aspirina).
       2. Proteínas ou Enzimas relevantes (Se aplicável ao termo de busca e filtros).
       
+      Fontes Preferenciais: PubChem, MatWeb, PDB (RCSB), GenBank, ChEMBL.
+      
       Para cada item, forneça dados científicos precisos.
       
       IMPORTANTE SOBRE ESTRUTURA 3D:
@@ -124,7 +127,7 @@ export const searchSubstances = async (query: string, filters?: SearchFilters, b
               structureType: { type: Type.STRING, enum: ["small-molecule", "protein"] },
               casNumber: { type: Type.STRING },
               molecularWeight: { type: Type.NUMBER },
-              source: { type: Type.STRING, description: "Fonte principal (PubChem, PDB, UniProt)" },
+              source: { type: Type.STRING, description: "Fonte principal (PubChem, PDB, UniProt, GenBank)" },
               properties: {
                 type: Type.ARRAY,
                 items: {

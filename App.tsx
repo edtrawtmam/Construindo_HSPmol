@@ -5,7 +5,8 @@ import { Dashboard } from './components/Dashboard';
 import { Comparison } from './components/Comparison';
 import { Viewer3D } from './components/Viewer3D';
 import { ViewState, Molecule, DashboardChart, ProjectData } from './types';
-import { CheckCircle2, AlertCircle, X, FlaskConical, Cpu, GitBranch, Globe } from 'lucide-react';
+import { HansenCalculator } from './services/hansenSDK';
+import { CheckCircle2, AlertCircle, X, FlaskConical, Cpu, GitBranch, Globe, BookOpen } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>(ViewState.SEARCH);
@@ -14,6 +15,7 @@ const App: React.FC = () => {
   const [selected3DMolecule, setSelected3DMolecule] = useState<Molecule | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showHspDocs, setShowHspDocs] = useState(false);
   
   // Notification System
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -135,9 +137,12 @@ const App: React.FC = () => {
 
   // --- Molecule Management ---
 
-  const addToProject = (molecule: Molecule) => {
+  const addToProject = async (molecule: Molecule) => {
     if (!projectMolecules.find(m => m.id === molecule.id)) {
-      setProjectMolecules([...projectMolecules, molecule]);
+      // Processa a molécula para adicionar HSP automaticamente usando o melhor método
+      const enrichedMolecule = await HansenCalculator.processMolecule(molecule);
+      
+      setProjectMolecules(prev => [...prev, enrichedMolecule]);
       showNotification(`${molecule.name} adicionado ao projeto.`, 'success');
     }
   };
@@ -164,6 +169,7 @@ const App: React.FC = () => {
         isDarkMode={isDarkMode}
         toggleTheme={() => setIsDarkMode(!isDarkMode)}
         onOpenInfo={() => setShowInfoModal(true)}
+        onOpenHspDocs={() => setShowHspDocs(true)}
       />
       
       <main className="flex-1 h-screen overflow-hidden relative">
@@ -218,7 +224,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-       {/* Info Modal - Rendered at Root to fix Stacking Context */}
+       {/* Info Modal */}
       {showInfoModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-200">
@@ -268,6 +274,91 @@ const App: React.FC = () => {
                     <div className="text-xs text-slate-500 text-center pt-2">
                         ID do Projeto: hspmol-app-2025
                     </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* HSP Methodology Modal */}
+      {showHspDocs && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl max-w-4xl w-full h-[85vh] shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-200 flex flex-col">
+                <div className="p-6 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-950/50">
+                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                        <BookOpen className="w-6 h-6 text-brand-500"/> Metodologia HSP Engine
+                    </h2>
+                    <button onClick={() => setShowHspDocs(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                        <X className="w-6 h-6"/>
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-8 space-y-8 prose dark:prose-invert max-w-none text-slate-800 dark:text-slate-200">
+                    <section>
+                        <h3 className="text-xl font-bold text-brand-600 dark:text-brand-400 border-b border-gray-200 dark:border-slate-700 pb-2 mb-4">Visão Geral da Implementação</h3>
+                        <p>
+                            O <strong>HSP Engine</strong> é um módulo computacional implementado inteiramente no lado do cliente (navegador) que utiliza algoritmos de Contribuição de Grupos (GCM) e Equações de Estado (EoS) para prever os Parâmetros de Solubilidade de Hansen ($\delta_D, \delta_P, \delta_H$) de qualquer estrutura molecular válida.
+                        </p>
+                        <p>
+                            O sistema utiliza uma abordagem de <strong>Seleção Inteligente (Smart Select)</strong>: ao inserir uma molécula, o motor executa todos os métodos disponíveis simultaneamente. Se houver dados experimentais de referência (validado contra o <em>Hansen Handbook</em>), o sistema compara os resultados e seleciona automaticamente o método preditivo com menor desvio ($Ra$). Se não houver referência, utiliza heurísticas baseadas na estrutura (ex: Polímeros vs Sais) para escolher o método mais robusto.
+                        </p>
+                    </section>
+
+                    <section>
+                        <h3 className="text-xl font-bold text-brand-600 dark:text-brand-400 border-b border-gray-200 dark:border-slate-700 pb-2 mb-4">Métodos de Cálculo</h3>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-lg border border-gray-200 dark:border-slate-700">
+                                <h4 className="font-bold text-lg mb-2">1. Van Krevelen & Hoftyzer (VKH)</h4>
+                                <p className="text-sm mb-2">
+                                    O método padrão para polímeros e moléculas orgânicas neutras. Baseia-se na soma das contribuições de grupos funcionais para as forças de dispersão ($F_d$), polares ($F_p$) e pontes de hidrogênio ($E_h$).
+                                </p>
+                                <div className="bg-white dark:bg-slate-900 p-2 rounded text-xs font-mono mb-2">
+                                    δD = ΣFd / V<br/>
+                                    δP = √(ΣFp²) / V<br/>
+                                    δH = √(ΣEh / V)
+                                </div>
+                                <p className="text-xs text-slate-500 italic">Fonte: Properties of Polymers, 4th Ed, 2009.</p>
+                            </div>
+
+                            <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-lg border border-gray-200 dark:border-slate-700">
+                                <h4 className="font-bold text-lg mb-2">2. Costas Panayiotou (EoS)</h4>
+                                <p className="text-sm mb-2">
+                                    Uma extensão baseada em Equação de Estado (EoS) que introduz a dependência da temperatura. Utiliza coeficientes de expansão térmica ($\alpha$) para ajustar os parâmetros base calculados via VKH.
+                                </p>
+                                <div className="bg-white dark:bg-slate-900 p-2 rounded text-xs font-mono mb-2">
+                                    δ(T) ≈ δ(298K) * [1 - α(T - 298)]
+                                </div>
+                                <p className="text-xs text-slate-500 italic">Fonte: Panayiotou et al., Ind. Eng. Chem. Res. 2004.</p>
+                            </div>
+
+                            <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-lg border border-gray-200 dark:border-slate-700">
+                                <h4 className="font-bold text-lg mb-2">3. Marcus (Sais e ILs)</h4>
+                                <p className="text-sm mb-2">
+                                    Método heurístico especializado para Sais Fundidos e Líquidos Iônicos (ILs). Estes materiais possuem forças de coesão extremamente altas devido a interações coulombianas, resultando em $\delta_P$ e $\delta_H$ elevados.
+                                </p>
+                                <p className="text-xs text-slate-500 italic">Fonte: Marcus, Y. "The Properties of Solvents", Wiley, 1998.</p>
+                            </div>
+
+                            <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-lg border border-gray-200 dark:border-slate-700">
+                                <h4 className="font-bold text-lg mb-2">4. Stefanis-Panayiotou</h4>
+                                <p className="text-sm mb-2">
+                                    Método de contribuição de grupos de segunda ordem (UNIFAC-based). Considera a vizinhança dos grupos funcionais, oferecendo maior precisão para moléculas polifuncionais complexas.
+                                </p>
+                                <p className="text-xs text-slate-500 italic">Fonte: Stefanis, E. & Panayiotou, C. (2008).</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section>
+                        <h3 className="text-xl font-bold text-brand-600 dark:text-brand-400 border-b border-gray-200 dark:border-slate-700 pb-2 mb-4">Referências Bibliográficas</h3>
+                        <ul className="list-disc pl-5 space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                            <li><strong>Hansen, C. M.</strong> (2007). <em>Hansen Solubility Parameters: A User's Handbook</em> (2nd ed.). CRC Press.</li>
+                            <li><strong>Van Krevelen, D. W., & te Nijenhuis, K.</strong> (2009). <em>Properties of Polymers</em> (4th ed.). Elsevier.</li>
+                            <li><strong>Stefanis, E., & Panayiotou, C.</strong> (2008). Prediction of Hansen Solubility Parameters with a New Group-Contribution Method. <em>International Journal of Thermophysics</em>, 29(2), 568-585.</li>
+                            <li><strong>Abbott, S.</strong> (2018). <em>Solubility Science: Principles and Practice</em>. Steven Abbott TCNF.</li>
+                            <li><strong>Marcus, Y.</strong> (1998). <em>The Properties of Solvents</em>. Wiley.</li>
+                        </ul>
+                    </section>
                 </div>
             </div>
         </div>

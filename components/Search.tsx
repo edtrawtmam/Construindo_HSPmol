@@ -230,6 +230,7 @@ export const Search: React.FC<SearchProps> = ({ onAddToProject, projectMolecules
                             <option value="PubChem">PubChem</option>
                             <option value="PDB">PDB (Proteínas)</option>
                             <option value="MatWeb">MatWeb</option>
+                            <option value="GenBank">GenBank</option>
                         </select>
                     </div>
                 </div>

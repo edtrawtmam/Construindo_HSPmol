@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Molecule, HansenParameters } from '../types';
 import { HansenCalculator } from '../services/hansenSDK';
-import { Trash2, Edit3, Save, X, Beaker, Box, LayoutGrid, Table as TableIcon, ArrowUpDown, ArrowUp, ArrowDown, Download, Settings2, Check, ExternalLink, Calculator, Target, Pencil } from 'lucide-react';
+import { Trash2, Edit3, Save, X, Beaker, Box, LayoutGrid, Table as TableIcon, ArrowUpDown, ArrowUp, ArrowDown, Download, Settings2, Check, ExternalLink, Calculator, Target, Pencil, BookOpen, AlertCircle, BadgeCheck } from 'lucide-react';
 
 interface ComparisonProps {
   projectMolecules: Molecule[];
@@ -18,8 +18,8 @@ interface SortConfig {
 }
 
 export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpdateMolecule, onRemoveMolecule, onView3D }) => {
-  // View Mode State
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  // View Mode State: Added 'validation'
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'validation'>('table');
   const [showSettings, setShowSettings] = useState(false);
 
   // Manual Edit State (HSP)
@@ -48,24 +48,25 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
     if (mol.structureType === 'protein' && mol.pdbId) {
       return `https://www.rcsb.org/structure/${mol.pdbId}`;
     }
-    // Fallback for PubChem (Standard for small molecules)
     const query = mol.englishName || mol.name;
     return `https://pubchem.ncbi.nlm.nih.gov/compound/${encodeURIComponent(query)}`;
   };
 
-  // 3. Columns Definition (Static + Dynamic)
+  // 3. Columns Definition (UPDATED: Lower Case Delta, Units, Indices)
   const columns = useMemo(() => {
     const staticCols = [
-      { key: 'name', label: 'Nome', isDynamic: false },
+      { key: 'name', label: 'Substância', isDynamic: false },
       { key: 'formula', label: 'Fórmula', isDynamic: false },
-      { key: 'molecularWeight', label: 'Peso Mol.', isDynamic: false },
-      { key: 'sourceUrl', label: 'Fonte', isDynamic: false },
-      // HSP Columns
-      { key: 'hsp_method', label: 'Método HSP', isDynamic: false }, // New Column
-      { key: 'hsp_d', label: 'δD (Disp)', isDynamic: false },
-      { key: 'hsp_p', label: 'δP (Polar)', isDynamic: false },
-      { key: 'hsp_h', label: 'δH (Hydrog)', isDynamic: false },
-      { key: 'hsp_ra', label: 'Ra (Distância)', isDynamic: false },
+      { key: 'molecularWeight', label: 'Massa Molar (g/mol)', isDynamic: false },
+      // SourceUrl removed, merged into name
+      { key: 'hsp_method', label: 'Método HSP', isDynamic: false },
+      { key: 'hsp_d', label: 'δd (Disp) [MPa½]¹', isDynamic: false },
+      { key: 'hsp_p', label: 'δp (Polar) [MPa½]²', isDynamic: false },
+      { key: 'hsp_h', label: 'δh (H-Bond) [MPa½]²', isDynamic: false },
+      { key: 'hsp_t', label: 'δt (Total) [MPa½]', isDynamic: false },
+      { key: 'hsp_v', label: 'δv (Vetorial) [MPa½]', isDynamic: false },
+      { key: 'hsp_vm', label: 'Vm (Vol. Molar) [cm³/mol]', isDynamic: false },
+      { key: 'hsp_ra', label: 'Ra (Distância) [MPa½]', isDynamic: false },
     ];
     const dynamicCols = allPropertyNames.map(name => ({ key: name, label: name, isDynamic: true }));
     return [...staticCols, ...dynamicCols];
@@ -77,13 +78,10 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
   const visibleMolecules = useMemo(() => {
     let filtered = projectMolecules.filter(m => !hiddenMolecules.includes(m.id));
 
-    // Calculate Ra distances if a target is set
     if (targetHSPMoleculeId) {
         const targetMol = projectMolecules.find(m => m.id === targetHSPMoleculeId);
         if (targetMol && targetMol.hsp) {
-             filtered = filtered.map(mol => {
-                 return mol; // We rely on dynamic calculation during render for ra, keeping molecule object clean unless persisted
-             });
+             filtered = filtered.map(mol => mol); // Trigger re-render
         }
     }
 
@@ -93,54 +91,43 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
         let valA: any = '';
         let valB: any = '';
 
-        // Extract value based on key type
         if (['name', 'formula', 'molecularWeight'].includes(sortConfig.key)) {
           valA = a[sortConfig.key as keyof Molecule];
           valB = b[sortConfig.key as keyof Molecule];
-        } else if (sortConfig.key === 'sourceUrl') {
-           valA = a.source || '';
-           valB = b.source || '';
         } else if (sortConfig.key === 'hsp_method') {
            valA = a.hsp?.method || 'Auto';
            valB = b.hsp?.method || 'Auto';
         } else if (sortConfig.key.startsWith('hsp_')) {
-            if (sortConfig.key === 'hsp_ra' && targetHSPMoleculeId) {
+            const suffix = sortConfig.key.split('_')[1];
+            if (suffix === 'ra' && targetHSPMoleculeId) {
                 const target = projectMolecules.find(m => m.id === targetHSPMoleculeId)?.hsp;
-                if (target && a.hsp) valA = HansenCalculator.calculateDistance(a.hsp, target);
-                else valA = 9999;
-                if (target && b.hsp) valB = HansenCalculator.calculateDistance(b.hsp, target);
-                else valB = 9999;
+                if (target && a.hsp) valA = HansenCalculator.calculateDistance(a.hsp, target); else valA = 9999;
+                if (target && b.hsp) valB = HansenCalculator.calculateDistance(b.hsp, target); else valB = 9999;
             } else {
-                const suffix = sortConfig.key.split('_')[1];
-                valA = a.hsp ? a.hsp[suffix === 'd' ? 'deltaD' : suffix === 'p' ? 'deltaP' : 'deltaH'] : -1;
-                valB = b.hsp ? b.hsp[suffix === 'd' ? 'deltaD' : suffix === 'p' ? 'deltaP' : 'deltaH'] : -1;
+                // Map suffixes to proper keys
+                const map: any = { d: 'deltaD', p: 'deltaP', h: 'deltaH', t: 'deltaT', v: 'deltaV', vm: 'molarVolume' };
+                valA = a.hsp ? a.hsp[map[suffix] as keyof HansenParameters] || 0 : -1;
+                valB = b.hsp ? b.hsp[map[suffix] as keyof HansenParameters] || 0 : -1;
             }
         } else {
-          // Dynamic property search
           const propA = a.properties.find(p => p.name === sortConfig.key);
           const propB = b.properties.find(p => p.name === sortConfig.key);
           valA = propA ? propA.value : '';
           valB = propB ? propB.value : '';
         }
 
-        // Numeric Extraction Helper
         const numA = parseFloat(String(valA).replace(/[^0-9.-]/g, ''));
         const numB = parseFloat(String(valB).replace(/[^0-9.-]/g, ''));
-
         const isNumA = !isNaN(numA) && String(valA).trim() !== '';
         const isNumB = !isNaN(numB) && String(valB).trim() !== '';
 
-        // Comparison
-        if (isNumA && isNumB) {
-           return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
-        }
+        if (isNumA && isNumB) return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
 
         return sortConfig.direction === 'asc' 
           ? String(valA).localeCompare(String(valB))
           : String(valB).localeCompare(String(valA));
       });
     }
-
     return filtered;
   }, [projectMolecules, hiddenMolecules, sortConfig, targetHSPMoleculeId]);
 
@@ -155,49 +142,30 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
     });
   };
 
-  // Manual Edit Handlers
   const openHspEditor = (mol: Molecule) => {
       setHspEditId(mol.id);
-      if (mol.hsp) {
-          setHspEditValues(mol.hsp);
-      } else {
-          setHspEditValues({ deltaD: 0, deltaP: 0, deltaH: 0, method: 'Manual' });
-      }
+      if (mol.hsp) setHspEditValues(mol.hsp);
+      else setHspEditValues({ deltaD: 0, deltaP: 0, deltaH: 0, method: 'Manual' });
   };
 
   const saveHspManual = () => {
       if (hspEditId) {
           const mol = projectMolecules.find(m => m.id === hspEditId);
-          if (mol) {
-              onUpdateMolecule({ ...mol, hsp: { ...hspEditValues, method: 'Manual' } });
-          }
+          if (mol) onUpdateMolecule({ ...mol, hsp: { ...hspEditValues, method: 'Manual' } });
       }
       setHspEditId(null);
   };
 
   const handleMethodChange = async (mol: Molecule, newMethod: string) => {
-      if (newMethod === 'Manual') {
-          // Immediately update method to 'Manual' to prevent UI snapback
-          const currentHSP = mol.hsp || { deltaD: 0, deltaP: 0, deltaH: 0, method: 'Manual' };
-          
-          // Set state for editor
-          setHspEditId(mol.id);
-          setHspEditValues({ ...currentHSP, method: 'Manual' });
-
-          // Propagate manual method selection to project
-          onUpdateMolecule({ ...mol, hsp: { ...currentHSP, method: 'Manual' } });
+      // Explicitly check for Experimental (Ref) here or in SDK
+      const hsp = await HansenCalculator.calculate(mol, newMethod as any);
+      
+      // IMPORTANT: Replace the entire HSP object to avoid accumulation/merging bugs
+      if (hsp) {
+          onUpdateMolecule({ ...mol, hsp: hsp });
       } else {
-          // Trigger Calculation
-          const hsp = await HansenCalculator.calculate(mol, newMethod as any);
-          if (hsp) {
-              onUpdateMolecule({ ...mol, hsp });
-          } else {
-              // If calculation returns null (e.g. method not implemented or smiles missing), 
-               onUpdateMolecule({ 
-                   ...mol, 
-                   hsp: { ...(mol.hsp || {deltaD:0, deltaP:0, deltaH:0}), method: newMethod as any }
-               });
-          }
+          // Fallback if calculation fails (rare)
+           onUpdateMolecule({ ...mol, hsp: { ...(mol.hsp || {deltaD:0, deltaP:0, deltaH:0}), method: newMethod as any }});
       }
   };
 
@@ -206,38 +174,31 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
   };
 
   const exportToCSV = () => {
-    // Header
     const headerRow = visibleColumns.map(c => `"${c.label}"`).join(',');
-    
-    // Rows
     const rows = visibleMolecules.map(mol => {
         return visibleColumns.map(col => {
             let val = '';
-            if (col.key === 'sourceUrl') {
-                val = getSourceUrl(mol);
-            } else if (col.key === 'hsp_method') {
-                val = mol.hsp?.method || 'Auto';
-            } else if (col.key.startsWith('hsp_')) {
+            if (col.key === 'hsp_method') val = mol.hsp?.method || 'Auto';
+            else if (col.key.startsWith('hsp_')) {
                 if (mol.hsp) {
-                    if (col.key === 'hsp_d') val = mol.hsp.deltaD.toString();
-                    if (col.key === 'hsp_p') val = mol.hsp.deltaP.toString();
-                    if (col.key === 'hsp_h') val = mol.hsp.deltaH.toString();
-                    if (col.key === 'hsp_ra' && targetHSPMoleculeId) {
+                    const suffix = col.key.split('_')[1];
+                    const map: any = { d: 'deltaD', p: 'deltaP', h: 'deltaH', t: 'deltaT', v: 'deltaV', vm: 'molarVolume' };
+                    
+                    if (suffix === 'ra' && targetHSPMoleculeId) {
                          const target = projectMolecules.find(m => m.id === targetHSPMoleculeId)?.hsp;
                          if (target) val = HansenCalculator.calculateDistance(mol.hsp, target).toString();
+                    } else {
+                         val = String(mol.hsp[map[suffix] as keyof HansenParameters] || '');
                     }
-                } else {
-                    val = '-';
-                }
+                } else val = '-';
             } else if (col.isDynamic) {
                 val = mol.properties.find(p => p.name === col.key)?.value.toString() || '';
             } else {
                 val = mol[col.key as keyof Molecule]?.toString() || '';
             }
-            return `"${val.replace(/"/g, '""')}"`; // Escape quotes
+            return `"${val.replace(/"/g, '""')}"`;
         }).join(',');
     });
-
     const csvContent = "data:text/csv;charset=utf-8," + [headerRow, ...rows].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -256,6 +217,83 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
       setHiddenMolecules(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
+  // --- RENDER VALIDATION VIEW ---
+  const renderValidationView = () => (
+    <div className="min-w-max border border-gray-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xl bg-white dark:bg-slate-900 transition-colors duration-300">
+        <div className="p-4 bg-yellow-50 dark:bg-yellow-900/10 border-b border-yellow-100 dark:border-yellow-900/20 text-sm text-yellow-800 dark:text-yellow-200 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5"/>
+            <span>Esta tabela compara os valores calculados pelo aplicativo com os valores experimentais do <strong>Hansen Handbook (2007)</strong> para validação científica.</span>
+        </div>
+        <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-medium uppercase text-xs">
+                <tr>
+                    <th className="p-4 border-b border-r border-gray-200 dark:border-slate-800">Substância</th>
+                    <th className="p-4 border-b border-r border-gray-200 dark:border-slate-800 text-center bg-blue-50 dark:bg-blue-900/10">Calculado (App)</th>
+                    <th className="p-4 border-b border-r border-gray-200 dark:border-slate-800 text-center bg-green-50 dark:bg-green-900/10">Handbook (Ref)</th>
+                    <th className="p-4 border-b border-gray-200 dark:border-slate-800 text-center">Desvio (Erro)</th>
+                </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-slate-800">
+                {visibleMolecules.map(mol => {
+                    const refData = HansenCalculator.getReferenceData(mol.englishName || mol.name);
+                    
+                    if (!refData) return null; // Only show validated molecules
+
+                    const calc = mol.hsp;
+                    const errorRa = calc ? HansenCalculator.calculateDistance(calc, refData) : 99;
+                    const deltaD = calc ? (calc.deltaD - refData.deltaD).toFixed(1) : '-';
+                    const deltaP = calc ? (calc.deltaP - refData.deltaP).toFixed(1) : '-';
+                    const deltaH = calc ? (calc.deltaH - refData.deltaH).toFixed(1) : '-';
+                    
+                    const statusColor = errorRa < 3.0 ? 'text-green-600 dark:text-green-400' : (errorRa < 8.0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400');
+                    const statusBadge = errorRa < 3.0 ? 'Aprovado' : (errorRa < 8.0 ? 'Atenção' : 'Reprovado');
+
+                    return (
+                        <tr key={mol.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
+                            <td className="p-4 border-r border-gray-200 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-200">
+                                {mol.name}
+                                <div className="text-xs font-normal text-slate-400">{mol.englishName}</div>
+                            </td>
+                            <td className="p-4 border-r border-gray-200 dark:border-slate-800 text-center bg-blue-50/30 dark:bg-blue-900/5">
+                                {calc ? (
+                                    <div className="font-mono text-xs space-y-1">
+                                        <div>D: {calc.deltaD}</div>
+                                        <div>P: {calc.deltaP}</div>
+                                        <div>H: {calc.deltaH}</div>
+                                        <div className="text-[10px] text-slate-400 mt-1">({calc.method})</div>
+                                    </div>
+                                ) : <span className="text-slate-400">-</span>}
+                            </td>
+                            <td className="p-4 border-r border-gray-200 dark:border-slate-800 text-center bg-green-50/30 dark:bg-green-900/5">
+                                <div className="font-mono text-xs space-y-1 text-slate-600 dark:text-slate-300">
+                                    <div>D: {refData.deltaD}</div>
+                                    <div>P: {refData.deltaP}</div>
+                                    <div>H: {refData.deltaH}</div>
+                                </div>
+                            </td>
+                            <td className="p-4 border-r border-gray-200 dark:border-slate-800 text-center">
+                                <div className={`font-bold ${statusColor} text-lg`}>Ra: {errorRa}</div>
+                                <div className="text-[10px] font-mono text-slate-400 mt-1 space-x-2">
+                                    <span>ΔD: {deltaD}</span>
+                                    <span>ΔP: {deltaP}</span>
+                                    <span>ΔH: {deltaH}</span>
+                                </div>
+                                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border mt-2 inline-block ${errorRa < 3.0 ? 'bg-green-100 border-green-200 text-green-700' : (errorRa < 8.0 ? 'bg-yellow-100 border-yellow-200 text-yellow-700' : 'bg-red-100 border-red-200 text-red-700')}`}>
+                                    {statusBadge}
+                                </span>
+                            </td>
+                        </tr>
+                    );
+                })}
+            </tbody>
+        </table>
+        {visibleMolecules.filter(mol => HansenCalculator.getReferenceData(mol.englishName || mol.name)).length === 0 && (
+            <div className="p-8 text-center text-slate-500">
+                Nenhuma substância padrão (ex: Acetona, Tolueno, Etanol) encontrada na lista para validação.
+            </div>
+        )}
+    </div>
+  );
 
   if (projectMolecules.length === 0) {
     return (
@@ -293,6 +331,12 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                 >
                     <LayoutGrid className="w-4 h-4" /> Comparativo
                 </button>
+                <button 
+                    onClick={() => setViewMode('validation')}
+                    className={`px-3 py-1.5 rounded flex items-center gap-2 text-xs font-medium transition-all ${viewMode === 'validation' ? 'bg-purple-600 text-white shadow' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                >
+                    <BadgeCheck className="w-4 h-4" /> Validação
+                </button>
             </div>
 
             <div className="h-6 w-px bg-gray-200 dark:bg-slate-700 mx-2"></div>
@@ -321,8 +365,10 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
         {/* Main Content Area */}
         <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 scrollbar-track-transparent p-6">
             
-            {viewMode === 'table' ? (
+            {viewMode === 'validation' ? renderValidationView() : (
+            viewMode === 'table' ? (
                 // --- TABLE VIEW ---
+                <div className="flex flex-col gap-4">
                 <div className="min-w-max border border-gray-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xl bg-white dark:bg-slate-900 transition-colors duration-300">
                     <table className="w-full text-sm text-left">
                         <thead className="bg-gray-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-medium uppercase text-xs">
@@ -333,7 +379,7 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                                 {visibleColumns.map(col => (
                                     <th 
                                         key={col.key} 
-                                        className="p-4 border-b border-r border-gray-200 dark:border-slate-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-900 hover:text-brand-600 dark:hover:text-brand-400 transition-colors group select-none"
+                                        className="p-4 border-b border-r border-gray-200 dark:border-slate-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-900 hover:text-brand-600 dark:hover:text-brand-400 transition-colors group select-none whitespace-nowrap"
                                         onClick={() => handleSort(col.key)}
                                     >
                                         <div className="flex items-center justify-between gap-2">
@@ -394,7 +440,9 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                                                         value={mol.hsp?.method || 'Auto'}
                                                         onChange={(e) => handleMethodChange(mol, e.target.value)}
                                                     >
+                                                        <option value="Experimental (Ref)">Ref. Handbook</option>
                                                         <option value="VanKrevelen">Van Krevelen</option>
+                                                        <option value="Stefanis">Stefanis-Panayiotou</option>
                                                         <option value="Costas">Costas</option>
                                                         <option value="Marcus">Marcus</option>
                                                         <option value="Manual">Manual</option>
@@ -413,12 +461,15 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                                                 );
                                             }
                                             const suffix = col.key.split('_')[1];
-                                            const val = mol.hsp ? mol.hsp[suffix === 'd' ? 'deltaD' : suffix === 'p' ? 'deltaP' : 'deltaH'] : null;
+                                            const map: any = { d: 'deltaD', p: 'deltaP', h: 'deltaH', t: 'deltaT', v: 'deltaV', vm: 'molarVolume' };
+                                            
+                                            const val = mol.hsp ? mol.hsp[map[suffix] as keyof HansenParameters] : null;
+                                            
                                             // Add manual edit button on first HSP column (hsp_d)
                                             if (col.key === 'hsp_d') {
                                                 return (
                                                     <td key={`${mol.id}-${col.key}`} className="p-4 text-slate-600 dark:text-slate-300 border-r border-gray-200 dark:border-slate-800/50 font-mono relative group/cell">
-                                                        {val !== null ? val : '-'}
+                                                        {val !== null && val !== undefined ? val : '-'}
                                                         <button 
                                                             onClick={() => openHspEditor(mol)}
                                                             className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 p-1 bg-gray-200 dark:bg-slate-800 hover:bg-brand-500 rounded text-slate-500 hover:text-white transition-all"
@@ -431,7 +482,7 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                                             }
                                             return (
                                                 <td key={`${mol.id}-${col.key}`} className="p-4 text-slate-600 dark:text-slate-300 border-r border-gray-200 dark:border-slate-800/50 font-mono">
-                                                    {val !== null ? val : '-'}
+                                                    {val !== null && val !== undefined ? val : '-'}
                                                 </td>
                                             );
                                         }
@@ -446,27 +497,43 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                                         }
                                         // Static Fields
                                         if (col.key === 'name') {
-                                            return <td key={`${mol.id}-name`} className="p-4 font-bold text-slate-800 dark:text-brand-100 border-r border-gray-200 dark:border-slate-800/50">{mol.name}</td>;
-                                        }
-                                        if (col.key === 'formula') {
-                                            return <td key={`${mol.id}-formula`} className="p-4 text-brand-600 dark:text-brand-400 font-mono text-xs border-r border-gray-200 dark:border-slate-800/50">{mol.formula}</td>;
-                                        }
-                                        if (col.key === 'sourceUrl') {
                                             const url = getSourceUrl(mol);
                                             return (
-                                                <td key={`${mol.id}-source`} className="p-4 border-r border-gray-200 dark:border-slate-800/50">
-                                                    <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-brand-600 dark:text-brand-400 hover:underline text-xs">
-                                                        {mol.source || 'Database'} <ExternalLink className="w-3 h-3" />
+                                                <td key={`${mol.id}-name`} className="p-4 font-bold border-r border-gray-200 dark:border-slate-800/50">
+                                                    <a href={url} target="_blank" rel="noreferrer" className="text-slate-800 dark:text-brand-100 hover:text-brand-600 dark:hover:text-brand-400 hover:underline flex items-center gap-2 group/link">
+                                                        {mol.name}
+                                                        <ExternalLink className="w-3 h-3 opacity-0 group-hover/link:opacity-50 transition-opacity" />
                                                     </a>
                                                 </td>
                                             );
                                         }
+                                        if (col.key === 'formula') {
+                                            return <td key={`${mol.id}-formula`} className="p-4 text-brand-600 dark:text-brand-400 font-mono text-xs border-r border-gray-200 dark:border-slate-800/50">{mol.formula}</td>;
+                                        }
+                                        
                                         return <td key={`${mol.id}-${col.key}`} className="p-4 text-slate-600 dark:text-slate-300 border-r border-gray-200 dark:border-slate-800/50">{String(mol[col.key as keyof Molecule] || '-')}</td>;
                                     })}
                                 </tr>
                             )})}
                         </tbody>
                     </table>
+                </div>
+
+                {/* References Footer */}
+                <div className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-lg border border-gray-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                    <h5 className="font-bold mb-2 uppercase text-[10px] tracking-wider">Referências & Unidades:</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <ul className="list-none space-y-1">
+                            <li><strong>¹ [MPa½]:</strong> Unidade do Parâmetro de Solubilidade (Raiz quadrada de Megapascal). Equivalente a (J/cm³)½.</li>
+                            <li><strong>² Grupo de Contribuição:</strong> Valores calculados baseados na fragmentação molecular e soma das contribuições.</li>
+                        </ul>
+                        <ul className="list-none space-y-1">
+                            <li><strong>[Ref]:</strong> Hansen, C. M. (2007). <em>Hansen Solubility Parameters: A User's Handbook</em>.</li>
+                            <li><strong>[VKH]:</strong> Van Krevelen, D.W. (2009). <em>Properties of Polymers</em>.</li>
+                            <li><strong>[SP]:</strong> Stefanis, E. & Panayiotou, C. (2008). <em>Int. J. Thermophys.</em></li>
+                        </ul>
+                    </div>
+                </div>
                 </div>
             ) : (
                 // --- GRID VIEW ---
@@ -494,14 +561,14 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                         <tbody>
                             {/* HSP Row */}
                              <tr>
-                                <td className="p-3 text-indigo-600 dark:text-indigo-400 font-bold sticky left-0 bg-gray-50 dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 border-b border-gray-200 dark:border-slate-800/50">Hansen (D/P/H)</td>
+                                <td className="p-3 text-indigo-600 dark:text-indigo-400 font-bold sticky left-0 bg-gray-50 dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 border-b border-gray-200 dark:border-slate-800/50">Hansen (d/p/h)</td>
                                 {visibleMolecules.map(mol => (
                                     <td key={mol.id} className="p-3 text-slate-800 dark:text-slate-200 border-b border-r border-gray-200 dark:border-slate-800/50">
                                         {mol.hsp ? (
                                             <div className="flex gap-2 items-center flex-wrap">
-                                                <span className="bg-white dark:bg-slate-800 px-2 rounded border border-gray-200 dark:border-slate-700 text-xs" title="Dispersão">D:{mol.hsp.deltaD}</span>
-                                                <span className="bg-white dark:bg-slate-800 px-2 rounded border border-gray-200 dark:border-slate-700 text-xs" title="Polaridade">P:{mol.hsp.deltaP}</span>
-                                                <span className="bg-white dark:bg-slate-800 px-2 rounded border border-gray-200 dark:border-slate-700 text-xs" title="H-Bond">H:{mol.hsp.deltaH}</span>
+                                                <span className="bg-white dark:bg-slate-800 px-2 rounded border border-gray-200 dark:border-slate-700 text-xs" title="Dispersão">d:{mol.hsp.deltaD}</span>
+                                                <span className="bg-white dark:bg-slate-800 px-2 rounded border border-gray-200 dark:border-slate-700 text-xs" title="Polaridade">p:{mol.hsp.deltaP}</span>
+                                                <span className="bg-white dark:bg-slate-800 px-2 rounded border border-gray-200 dark:border-slate-700 text-xs" title="H-Bond">h:{mol.hsp.deltaH}</span>
                                                 <span className="text-[10px] text-slate-400">({mol.hsp.method})</span>
                                                 <button onClick={() => openHspEditor(mol)} className="text-slate-500 hover:text-brand-500 p-1"><Pencil className="w-3 h-3"/></button>
                                             </div>
@@ -535,7 +602,7 @@ export const Comparison: React.FC<ComparisonProps> = ({ projectMolecules, onUpda
                         </tbody>
                     </table>
                 </div>
-            )}
+            ))}
         </div>
 
         {/* Settings Sidebar */}
